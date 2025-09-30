@@ -10,16 +10,21 @@
     <script src="https://cdn.tailwindcss.com"></script>
     <!-- EmailJS -->
     <script src="https://cdn.jsdelivr.net/npm/@emailjs/browser@3/dist/email.min.js"></script>
+    <!-- Google reCAPTCHA v2 -->
+    <script src="https://www.google.com/recaptcha/api.js" async defer></script>
     <script>
-          // CONFIGURATION - Remplacez par vos propres clés
+        // CONFIGURATION - Remplacez par vos propres clés
         const CONFIG = {
             emailjs: {
                 publicKey: 'ybv8Cop9hM8NIwgSI', // À obtenir sur emailjs.com
-                serviceId: 'service_nb31k2f',
+                serviceId: 'service_nb31k2f'
                 templateId: 'template_32n8ytl'
             },
             googleSheets: {
                 scriptUrl: 'https://script.google.com/macros/s/AKfycbwd2W8vxGHmuARlVdD6J-RZtM8SSyIqjhHMd3qw42iw-gYDFjtFLqiu6-NrsWESqNw_dA/exec' // URL du script Google Sheets
+            },
+            recaptcha: {
+                siteKey: '6Lc7GtorAAAAAB9qSaX39i5DkBvtKSO1A6J4qsSw' // Clé publique reCAPTCHA
             }
         };
     </script>
@@ -70,6 +75,7 @@
           const [loading, setLoading] = useState(false);
           const [canResend, setCanResend] = useState(true);
           const [countdown, setCountdown] = useState(0);
+          const [recaptchaToken, setRecaptchaToken] = useState(null);
           const [formData, setFormData] = useState({
             position: '',
             commentaire: ''
@@ -78,6 +84,25 @@
           useEffect(() => {
             checkIfAlreadyVoted();
             checkRateLimit();
+            
+            // Écouter les événements reCAPTCHA
+            const handleRecaptchaSuccess = (e) => {
+              setRecaptchaToken(e.detail);
+              setError('');
+            };
+            
+            const handleRecaptchaExpired = () => {
+              setRecaptchaToken(null);
+              setError('Le CAPTCHA a expiré. Veuillez le valider à nouveau.');
+            };
+            
+            window.addEventListener('recaptcha-success', handleRecaptchaSuccess);
+            window.addEventListener('recaptcha-expired', handleRecaptchaExpired);
+            
+            return () => {
+              window.removeEventListener('recaptcha-success', handleRecaptchaSuccess);
+              window.removeEventListener('recaptcha-expired', handleRecaptchaExpired);
+            };
           }, []);
 
           useEffect(() => {
@@ -125,6 +150,16 @@
             const attempts = JSON.parse(localStorage.getItem('emailAttempts') || '[]');
             const recentAttempts = attempts.filter(time => Date.now() - time < 7200000); // 2 heures
             return recentAttempts.length >= 2; // Max 2 tentatives par 2 heures
+          };
+
+          const onRecaptchaChange = (token) => {
+            setRecaptchaToken(token);
+            setError('');
+          };
+
+          const onRecaptchaExpired = () => {
+            setRecaptchaToken(null);
+            setError('Le CAPTCHA a expiré. Veuillez le valider à nouveau.');
           };
 
           const validateEmail = (email) => {
@@ -228,13 +263,19 @@
           const handleFormSubmit = async (e) => {
             e.preventDefault();
             setError('');
-            setLoading(true);
 
             if (!formData.position) {
               setError('Veuillez sélectionner votre position.');
-              setLoading(false);
               return;
             }
+
+            // Vérifier le reCAPTCHA
+            if (!recaptchaToken) {
+              setError('Veuillez valider le CAPTCHA avant de voter.');
+              return;
+            }
+
+            setLoading(true);
 
             // Préparer les données du vote
             const voteData = {
@@ -242,7 +283,8 @@
               position: formData.position,
               commentaire: formData.commentaire,
               timestamp: new Date().toISOString(),
-              date: new Date().toLocaleString('fr-FR')
+              date: new Date().toLocaleString('fr-FR'),
+              recaptchaToken: recaptchaToken
             };
 
             // Sauvegarder dans Google Sheets
@@ -254,6 +296,11 @@
               setStep('submitted');
             } else {
               setError('Erreur lors de la sauvegarde du vote. Réessayez.');
+              // Réinitialiser le reCAPTCHA en cas d'erreur
+              if (window.grecaptcha) {
+                window.grecaptcha.reset();
+                setRecaptchaToken(null);
+              }
             }
 
             setLoading(false);
@@ -447,9 +494,30 @@
                       />
                     </div>
 
+                    {/* Google reCAPTCHA */}
+                    <div className="bg-gray-50 border-2 border-gray-300 rounded-lg p-4">
+                      <div className="flex items-center gap-2 mb-3">
+                        <div className="bg-blue-500 text-white rounded-full w-6 h-6 flex items-center justify-center flex-shrink-0 font-bold text-sm">
+                          ✓
+                        </div>
+                        <p className="font-semibold text-gray-800">Vérification de sécurité</p>
+                      </div>
+                      <p className="text-sm text-gray-600 mb-3">
+                        Validez le CAPTCHA ci-dessous pour prouver que vous êtes humain :
+                      </p>
+                      <div className="flex justify-center">
+                        <div 
+                          className="g-recaptcha" 
+                          data-sitekey={CONFIG.recaptcha.siteKey}
+                          data-callback="onRecaptchaSuccess"
+                          data-expired-callback="onRecaptchaExpired"
+                        ></div>
+                      </div>
+                    </div>
+
                     <button
                       onClick={handleFormSubmit}
-                      disabled={loading}
+                      disabled={loading || !recaptchaToken}
                       className="w-full bg-blue-600 text-white py-3 px-4 rounded-lg hover:bg-blue-700 transition-colors font-medium text-lg disabled:bg-gray-400 disabled:cursor-not-allowed flex items-center justify-center gap-2"
                     >
                       {loading ? (
@@ -457,6 +525,8 @@
                           <Loader className="w-5 h-5 animate-spin" />
                           Envoi en cours...
                         </>
+                      ) : !recaptchaToken ? (
+                        '🔒 Validez le CAPTCHA pour voter'
                       ) : (
                         'Soumettre mon vote'
                       )}
@@ -510,6 +580,25 @@
         }
 
         ReactDOM.render(<UMontpellierForm />, document.getElementById('root'));
+
+        // Callbacks globales pour reCAPTCHA
+        window.onRecaptchaSuccess = function(token) {
+            window.dispatchEvent(new CustomEvent('recaptcha-success', { detail: token }));
+        };
+
+        window.onRecaptchaExpired = function() {
+            window.dispatchEvent(new Event('recaptcha-expired'));
+        };
+
+        // Écouter les événements reCAPTCHA
+        window.addEventListener('recaptcha-success', (e) => {
+            // Cette fonction sera appelée quand le reCAPTCHA est validé
+            console.log('reCAPTCHA validé');
+        });
+
+        window.addEventListener('recaptcha-expired', () => {
+            console.log('reCAPTCHA expiré');
+        });
     </script>
 </body>
 </html>
