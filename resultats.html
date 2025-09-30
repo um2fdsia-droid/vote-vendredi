@@ -1,0 +1,383 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Résultats du Vote - Blocage Vendredi</title>
+    <script crossorigin src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
+    <script crossorigin src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
+    <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <script>
+        // CONFIGURATION - Remplacez par votre URL Google Apps Script
+        const CONFIG = {
+            googleSheets: {
+                scriptUrl: 'https://script.google.com/macros/s/AKfycbwd2W8vxGHmuARlVdD6J-RZtM8SSyIqjhHMd3qw42iw-gYDFjtFLqiu6-NrsWESqNw_dA/exec'
+            }
+        };
+    </script>
+</head>
+<body>
+    <div id="root"></div>
+
+    <script type="text/babel">
+        const { useState, useEffect } = React;
+
+        // Icônes
+        const RefreshCw = ({ className, onClick }) => (
+            <svg onClick={onClick} className={className} fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
+            </svg>
+        );
+
+        const TrendingUp = ({ className }) => (
+            <svg className={className} fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 7h8m0 0v8m0-8l-8 8-4-4-6 6" />
+            </svg>
+        );
+
+        const Users = ({ className }) => (
+            <svg className={className} fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4.354a4 4 0 110 5.292M15 21H3v-1a6 6 0 0112 0v1zm0 0h6v-1a6 6 0 00-9-5.197M13 7a4 4 0 11-8 0 4 4 0 018 0z" />
+            </svg>
+        );
+
+        const CheckCircle = ({ className }) => (
+            <svg className={className} fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" />
+            </svg>
+        );
+
+        const XCircle = ({ className }) => (
+            <svg className={className} fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <circle cx="12" cy="12" r="10"></circle>
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 9l-6 6m0-6l6 6" />
+            </svg>
+        );
+
+        const MinusCircle = ({ className }) => (
+            <svg className={className} fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <circle cx="12" cy="12" r="10"></circle>
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 12h8" />
+            </svg>
+        );
+
+        const AlertCircle = ({ className }) => (
+            <svg className={className} fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <circle cx="12" cy="12" r="10"></circle>
+                <line x1="12" y1="8" x2="12" y2="12"></line>
+                <line x1="12" y1="16" x2="12.01" y2="16"></line>
+            </svg>
+        );
+
+        function VoteResults() {
+            const [stats, setStats] = useState(null);
+            const [loading, setLoading] = useState(true);
+            const [error, setError] = useState('');
+            const [lastUpdate, setLastUpdate] = useState(null);
+            const chartRef = React.useRef(null);
+            const chartInstance = React.useRef(null);
+
+            useEffect(() => {
+                fetchResults();
+                const interval = setInterval(fetchResults, 30000); // Actualiser toutes les 30 secondes
+                return () => clearInterval(interval);
+            }, []);
+
+            useEffect(() => {
+                if (stats && chartRef.current) {
+                    createChart();
+                }
+                return () => {
+                    if (chartInstance.current) {
+                        chartInstance.current.destroy();
+                    }
+                };
+            }, [stats]);
+
+            const fetchResults = async () => {
+                try {
+                    setError('');
+                    const response = await fetch(CONFIG.googleSheets.scriptUrl);
+                    const data = await response.json();
+                    setStats(data);
+                    setLastUpdate(new Date());
+                    setLoading(false);
+                } catch (err) {
+                    setError('Erreur lors du chargement des résultats. Vérifiez l\'URL du script Google Sheets.');
+                    setLoading(false);
+                    console.error('Erreur:', err);
+                }
+            };
+
+            const createChart = () => {
+                if (chartInstance.current) {
+                    chartInstance.current.destroy();
+                }
+
+                const ctx = chartRef.current.getContext('2d');
+                chartInstance.current = new Chart(ctx, {
+                    type: 'doughnut',
+                    data: {
+                        labels: ['Pour le blocage', 'Contre le blocage', 'Pas d\'avis'],
+                        datasets: [{
+                            data: [stats.pour, stats.contre, stats.neutre],
+                            backgroundColor: [
+                                'rgba(34, 197, 94, 0.8)',
+                                'rgba(239, 68, 68, 0.8)',
+                                'rgba(156, 163, 175, 0.8)'
+                            ],
+                            borderColor: [
+                                'rgba(34, 197, 94, 1)',
+                                'rgba(239, 68, 68, 1)',
+                                'rgba(156, 163, 175, 1)'
+                            ],
+                            borderWidth: 2
+                        }]
+                    },
+                    options: {
+                        responsive: true,
+                        maintainAspectRatio: false,
+                        plugins: {
+                            legend: {
+                                position: 'bottom',
+                                labels: {
+                                    padding: 15,
+                                    font: {
+                                        size: 14
+                                    }
+                                }
+                            },
+                            tooltip: {
+                                callbacks: {
+                                    label: function(context) {
+                                        const total = context.dataset.data.reduce((a, b) => a + b, 0);
+                                        const percentage = ((context.parsed / total) * 100).toFixed(1);
+                                        return `${context.label}: ${context.parsed} votes (${percentage}%)`;
+                                    }
+                                }
+                            }
+                        }
+                    }
+                });
+            };
+
+            const getPercentage = (value) => {
+                if (!stats || stats.total === 0) return 0;
+                return ((value / stats.total) * 100).toFixed(1);
+            };
+
+            const getWinner = () => {
+                if (!stats) return null;
+                if (stats.pour > stats.contre && stats.pour > stats.neutre) return 'pour';
+                if (stats.contre > stats.pour && stats.contre > stats.neutre) return 'contre';
+                if (stats.neutre > stats.pour && stats.neutre > stats.contre) return 'neutre';
+                return 'égalité';
+            };
+
+            if (loading) {
+                return (
+                    <div className="min-h-screen bg-gradient-to-br from-blue-50 to-indigo-100 flex items-center justify-center">
+                        <div className="text-center">
+                            <div className="animate-spin rounded-full h-16 w-16 border-b-4 border-blue-600 mx-auto mb-4"></div>
+                            <p className="text-gray-600">Chargement des résultats...</p>
+                        </div>
+                    </div>
+                );
+            }
+
+            return (
+                <div className="min-h-screen bg-gradient-to-br from-blue-50 to-indigo-100 py-8 px-4">
+                    <div className="max-w-6xl mx-auto">
+                        {/* En-tête */}
+                        <div className="bg-white rounded-lg shadow-lg p-6 mb-6">
+                            <div className="flex items-center justify-between mb-4">
+                                <div>
+                                    <h1 className="text-3xl font-bold text-gray-800">
+                                        Résultats du Vote
+                                    </h1>
+                                    <p className="text-gray-600 mt-1">
+                                        Blocage de l'université vendredi prochain
+                                    </p>
+                                </div>
+                                <button
+                                    onClick={fetchResults}
+                                    className="flex items-center gap-2 bg-blue-600 text-white px-4 py-2 rounded-lg hover:bg-blue-700 transition-colors"
+                                >
+                                    <RefreshCw className="w-5 h-5" />
+                                    Actualiser
+                                </button>
+                            </div>
+                            {lastUpdate && (
+                                <p className="text-sm text-gray-500">
+                                    Dernière mise à jour : {lastUpdate.toLocaleTimeString('fr-FR')}
+                                </p>
+                            )}
+                        </div>
+
+                        {error && (
+                            <div className="bg-red-50 border border-red-200 rounded-lg p-4 mb-6 flex items-start gap-2">
+                                <AlertCircle className="w-5 h-5 text-red-600 flex-shrink-0 mt-0.5" />
+                                <p className="text-red-800">{error}</p>
+                            </div>
+                        )}
+
+                        {stats && (
+                            <>
+                                {/* Statistiques principales */}
+                                <div className="grid grid-cols-1 md:grid-cols-4 gap-4 mb-6">
+                                    <div className="bg-white rounded-lg shadow p-6">
+                                        <div className="flex items-center justify-between">
+                                            <div>
+                                                <p className="text-gray-600 text-sm font-medium">Total des votes</p>
+                                                <p className="text-3xl font-bold text-gray-800 mt-2">{stats.total}</p>
+                                            </div>
+                                            <Users className="w-12 h-12 text-blue-600" />
+                                        </div>
+                                    </div>
+
+                                    <div className="bg-gradient-to-br from-green-50 to-green-100 rounded-lg shadow p-6">
+                                        <div className="flex items-center justify-between">
+                                            <div>
+                                                <p className="text-green-800 text-sm font-medium">Pour le blocage</p>
+                                                <p className="text-3xl font-bold text-green-900 mt-2">{stats.pour}</p>
+                                                <p className="text-sm text-green-700 mt-1">{getPercentage(stats.pour)}%</p>
+                                            </div>
+                                            <CheckCircle className="w-12 h-12 text-green-600" />
+                                        </div>
+                                    </div>
+
+                                    <div className="bg-gradient-to-br from-red-50 to-red-100 rounded-lg shadow p-6">
+                                        <div className="flex items-center justify-between">
+                                            <div>
+                                                <p className="text-red-800 text-sm font-medium">Contre le blocage</p>
+                                                <p className="text-3xl font-bold text-red-900 mt-2">{stats.contre}</p>
+                                                <p className="text-sm text-red-700 mt-1">{getPercentage(stats.contre)}%</p>
+                                            </div>
+                                            <XCircle className="w-12 h-12 text-red-600" />
+                                        </div>
+                                    </div>
+
+                                    <div className="bg-gradient-to-br from-gray-50 to-gray-100 rounded-lg shadow p-6">
+                                        <div className="flex items-center justify-between">
+                                            <div>
+                                                <p className="text-gray-800 text-sm font-medium">Pas d'avis</p>
+                                                <p className="text-3xl font-bold text-gray-900 mt-2">{stats.neutre}</p>
+                                                <p className="text-sm text-gray-700 mt-1">{getPercentage(stats.neutre)}%</p>
+                                            </div>
+                                            <MinusCircle className="w-12 h-12 text-gray-600" />
+                                        </div>
+                                    </div>
+                                </div>
+
+                                {/* Graphique et résultat */}
+                                <div className="grid grid-cols-1 md:grid-cols-2 gap-6 mb-6">
+                                    {/* Graphique */}
+                                    <div className="bg-white rounded-lg shadow-lg p-6">
+                                        <h2 className="text-xl font-bold text-gray-800 mb-4">Répartition des votes</h2>
+                                        <div style={{ height: '300px' }}>
+                                            <canvas ref={chartRef}></canvas>
+                                        </div>
+                                    </div>
+
+                                    {/* Résultat */}
+                                    <div className="bg-white rounded-lg shadow-lg p-6">
+                                        <h2 className="text-xl font-bold text-gray-800 mb-4">Résultat actuel</h2>
+                                        <div className="flex flex-col items-center justify-center h-64">
+                                            {getWinner() === 'pour' && (
+                                                <>
+                                                    <CheckCircle className="w-20 h-20 text-green-600 mb-4" />
+                                                    <p className="text-2xl font-bold text-green-900">Majorité POUR</p>
+                                                    <p className="text-gray-600 mt-2">le blocage</p>
+                                                </>
+                                            )}
+                                            {getWinner() === 'contre' && (
+                                                <>
+                                                    <XCircle className="w-20 h-20 text-red-600 mb-4" />
+                                                    <p className="text-2xl font-bold text-red-900">Majorité CONTRE</p>
+                                                    <p className="text-gray-600 mt-2">le blocage</p>
+                                                </>
+                                            )}
+                                            {getWinner() === 'neutre' && (
+                                                <>
+                                                    <MinusCircle className="w-20 h-20 text-gray-600 mb-4" />
+                                                    <p className="text-2xl font-bold text-gray-900">Majorité NEUTRE</p>
+                                                    <p className="text-gray-600 mt-2">Pas d'avis</p>
+                                                </>
+                                            )}
+                                            {getWinner() === 'égalité' && (
+                                                <>
+                                                    <TrendingUp className="w-20 h-20 text-blue-600 mb-4" />
+                                                    <p className="text-2xl font-bold text-blue-900">ÉGALITÉ</p>
+                                                    <p className="text-gray-600 mt-2">Résultat serré</p>
+                                                </>
+                                            )}
+                                            {stats.total === 0 && (
+                                                <>
+                                                    <Users className="w-20 h-20 text-gray-400 mb-4" />
+                                                    <p className="text-2xl font-bold text-gray-600">Aucun vote</p>
+                                                    <p className="text-gray-500 mt-2">En attente de participation</p>
+                                                </>
+                                            )}
+                                        </div>
+                                    </div>
+                                </div>
+
+                                {/* Barres de progression */}
+                                <div className="bg-white rounded-lg shadow-lg p-6">
+                                    <h2 className="text-xl font-bold text-gray-800 mb-4">Détails des votes</h2>
+                                    
+                                    <div className="space-y-4">
+                                        <div>
+                                            <div className="flex justify-between mb-2">
+                                                <span className="text-sm font-medium text-green-800">✅ Pour le blocage</span>
+                                                <span className="text-sm font-bold text-green-900">{stats.pour} votes ({getPercentage(stats.pour)}%)</span>
+                                            </div>
+                                            <div className="w-full bg-gray-200 rounded-full h-4">
+                                                <div 
+                                                    className="bg-green-600 h-4 rounded-full transition-all duration-500"
+                                                    style={{ width: `${getPercentage(stats.pour)}%` }}
+                                                ></div>
+                                            </div>
+                                        </div>
+
+                                        <div>
+                                            <div className="flex justify-between mb-2">
+                                                <span className="text-sm font-medium text-red-800">❌ Contre le blocage</span>
+                                                <span className="text-sm font-bold text-red-900">{stats.contre} votes ({getPercentage(stats.contre)}%)</span>
+                                            </div>
+                                            <div className="w-full bg-gray-200 rounded-full h-4">
+                                                <div 
+                                                    className="bg-red-600 h-4 rounded-full transition-all duration-500"
+                                                    style={{ width: `${getPercentage(stats.contre)}%` }}
+                                                ></div>
+                                            </div>
+                                        </div>
+
+                                        <div>
+                                            <div className="flex justify-between mb-2">
+                                                <span className="text-sm font-medium text-gray-800">⚪ Pas d'avis</span>
+                                                <span className="text-sm font-bold text-gray-900">{stats.neutre} votes ({getPercentage(stats.neutre)}%)</span>
+                                            </div>
+                                            <div className="w-full bg-gray-200 rounded-full h-4">
+                                                <div 
+                                                    className="bg-gray-600 h-4 rounded-full transition-all duration-500"
+                                                    style={{ width: `${getPercentage(stats.neutre)}%` }}
+                                                ></div>
+                                            </div>
+                                        </div>
+                                    </div>
+                                </div>
+                            </>
+                        )}
+                    </div>
+                </div>
+            );
+        }
+
+        ReactDOM.render(<VoteResults />, document.getElementById('root'));
+    </script>
+</body>
+</html>
+</html>
