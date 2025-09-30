@@ -11,7 +11,7 @@
     <!-- EmailJS -->
     <script src="https://cdn.jsdelivr.net/npm/@emailjs/browser@3/dist/email.min.js"></script>
     <script>
-        // CONFIGURATION - Remplacez par vos propres clés
+          // CONFIGURATION - Remplacez par vos propres clés
         const CONFIG = {
             emailjs: {
                 publicKey: 'ybv8Cop9hM8NIwgSI', // À obtenir sur emailjs.com
@@ -68,6 +68,8 @@
           const [generatedCode, setGeneratedCode] = useState('');
           const [error, setError] = useState('');
           const [loading, setLoading] = useState(false);
+          const [canResend, setCanResend] = useState(true);
+          const [countdown, setCountdown] = useState(0);
           const [formData, setFormData] = useState({
             position: '',
             commentaire: ''
@@ -75,7 +77,18 @@
 
           useEffect(() => {
             checkIfAlreadyVoted();
+            checkRateLimit();
           }, []);
+
+          useEffect(() => {
+            let timer;
+            if (countdown > 0) {
+              timer = setTimeout(() => setCountdown(countdown - 1), 1000);
+            } else if (countdown === 0 && !canResend) {
+              setCanResend(true);
+            }
+            return () => clearTimeout(timer);
+          }, [countdown, canResend]);
 
           const checkIfAlreadyVoted = async () => {
             const submitted = localStorage.getItem('formSubmitted');
@@ -84,6 +97,34 @@
               setEmail(submittedEmail);
               setStep('blocked');
             }
+          };
+
+          const checkRateLimit = () => {
+            const lastAttempt = localStorage.getItem('lastEmailAttempt');
+            if (lastAttempt) {
+              const timeSince = Date.now() - parseInt(lastAttempt);
+              const cooldown = 420000; // 420 secondes = 7 minutes
+              if (timeSince < cooldown) {
+                const remaining = Math.ceil((cooldown - timeSince) / 1000);
+                setCountdown(remaining);
+                setCanResend(false);
+              }
+            }
+          };
+
+          const recordEmailAttempt = () => {
+            localStorage.setItem('lastEmailAttempt', Date.now().toString());
+            const attempts = JSON.parse(localStorage.getItem('emailAttempts') || '[]');
+            attempts.push(Date.now());
+            // Garder seulement les 10 dernières tentatives
+            if (attempts.length > 10) attempts.shift();
+            localStorage.setItem('emailAttempts', JSON.stringify(attempts));
+          };
+
+          const checkTooManyAttempts = () => {
+            const attempts = JSON.parse(localStorage.getItem('emailAttempts') || '[]');
+            const recentAttempts = attempts.filter(time => Date.now() - time < 7200000); // 2 heures
+            return recentAttempts.length >= 2; // Max 2 tentatives par 2 heures
           };
 
           const validateEmail = (email) => {
@@ -137,9 +178,28 @@
               return;
             }
 
+            // Vérifier si trop de tentatives
+            if (checkTooManyAttempts()) {
+              setError('Trop de tentatives d\'envoi. Veuillez réessayer dans 2 heures.');
+              setLoading(false);
+              return;
+            }
+
+            // Vérifier le cooldown
+            if (!canResend) {
+              setError(`Veuillez attendre ${countdown} secondes avant de renvoyer un code.`);
+              setLoading(false);
+              return;
+            }
+
             // Générer code de vérification
             const code = Math.floor(100000 + Math.random() * 900000).toString();
             setGeneratedCode(code);
+            
+            // Enregistrer la tentative
+            recordEmailAttempt();
+            setCanResend(false);
+            setCountdown(420); // 420 secondes de cooldown = 7 minutes
             
             // Envoyer l'email
             const emailSent = await sendVerificationEmail(email, code);
@@ -249,7 +309,7 @@
                     </div>
                     <button
                       onClick={handleEmailSubmit}
-                      disabled={loading}
+                      disabled={loading || !canResend}
                       className="w-full bg-blue-600 text-white py-2 px-4 rounded-lg hover:bg-blue-700 transition-colors font-medium disabled:bg-gray-400 disabled:cursor-not-allowed flex items-center justify-center gap-2"
                     >
                       {loading ? (
@@ -257,10 +317,17 @@
                           <Loader className="w-5 h-5 animate-spin" />
                           Envoi en cours...
                         </>
+                      ) : !canResend ? (
+                        `Attendre ${countdown}s`
                       ) : (
                         'Recevoir le code'
                       )}
                     </button>
+                    {!canResend && countdown > 0 && (
+                      <p className="text-xs text-center text-gray-500 mt-2">
+                        Protection anti-spam : attendez {countdown} secondes avant de renvoyer
+                      </p>
+                    )}
                   </div>
                 )}
 
